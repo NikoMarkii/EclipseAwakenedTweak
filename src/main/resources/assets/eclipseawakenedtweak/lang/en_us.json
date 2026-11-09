@@ -1,0 +1,23 @@
+{
+  "boss_intro.generic": "A New Foe Approaches",
+  "boss_intro.minecraft.ender_dragon.name": "Ender Dragon",
+  "boss_intro.minecraft.wither.name": "Wither",
+  "boss_intro.minecraft.ender_dragon": "Sovereign of the End",
+  "boss_intro.minecraft.wither": "The Three-Headed Ruin",
+  "boss_intro.cataclysm.maledictus": "The Cursed Harbinger",
+  "boss_intro.cataclysm.ender_guardian": "Warden of the End",
+  "boss_intro.cataclysm.ancient_remnant": "Relic of the Desert",
+  "boss_intro.cataclysm.netherite_monstrosity": "Infernal Colossus",
+  "boss_intro.cataclysm.ignis": "Warrior of Purgatory",
+  "boss_intro.cataclysm.the_harbinger": "Clockwork Ruin",
+  "boss_intro.cataclysm.the_leviathan": "Terror of the Deep",
+  "boss_intro.cataclysm.scylla": "Queen of the Abyss",
+  "boss_intro.cataclysm.maledictus.name": "Maledictus",
+  "boss_intro.cataclysm.ender_guardian.name": "Ender Guardian",
+  "boss_intro.cataclysm.ancient_remnant.name": "Ancient Remnant",
+  "boss_intro.cataclysm.netherite_monstrosity.name": "Netherite Monstrosity",
+  "boss_intro.cataclysm.ignis.name": "Ignis",
+  "boss_intro.cataclysm.the_harbinger.name": "The Harbinger",
+  "boss_intro.cataclysm.the_leviathan.name": "The Leviathan",
+  "boss_intro.cataclysm.scylla.name": "Scylla"
+}

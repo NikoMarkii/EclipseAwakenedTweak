@@ -17,61 +17,12 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
 minecraft {
-    // The mappings can be changed at any time and must be in the following format.
-    // Channel:   Version:
-    // official   MCVersion             Official field/method names from Mojang mapping files
-    // parchment  YYYY.MM.DD-MCVersion  Open community-sourced parameter names and javadocs layered on top of official
-    //
-    // You must be aware of the Mojang license when using the 'official' or 'parchment' mappings.
-    // See more information here: https://github.com/MinecraftForge/MCPConfig/blob/master/Mojang.md
-    //
-    // Parchment is an unofficial project maintained by ParchmentMC, separate from MinecraftForge
-    // Additional setup is needed to use their mappings: https://parchmentmc.org/docs/getting-started
-    //
-    // Use non-default mappings at your own risk. They may not always work.
-    // Simply re-run your setup task after changing the mappings to update your workspace.
-    mappings channel: mapping_channel, version: mapping_version
+    mappings channel: 'official', version: '1.20.1'
 
-    // When true, this property will have all Eclipse/IntelliJ IDEA run configurations run the "prepareX" task for the given run configuration before launching the game.
-    // In most cases, it is not necessary to enable.
-    // enableEclipsePrepareRuns = true
-    // enableIdeaPrepareRuns = true
-
-    // This property allows configuring Gradle's ProcessResources task(s) to run on IDE output locations before launching the game.
-    // It is REQUIRED to be set to true for this template to function.
-    // See https://docs.gradle.org/current/dsl/org.gradle.language.jvm.tasks.ProcessResources.html
-    copyIdeResources = true
-
-    // When true, this property will add the folder name of all declared run configurations to generated IDE run configurations.
-    // The folder name can be set on a run configuration using the "folderName" property.
-    // By default, the folder name of a run configuration is the name of the Gradle project containing it.
-    // generateRunFolders = true
-
-    // This property enables access transformers for use in development.
-    // They will be applied to the Minecraft artifact.
-    // The access transformer file can be anywhere in the project.
-    // However, it must be at "META-INF/accesstransformer.cfg" in the final mod jar to be loaded by Forge.
-    // This default location is a best practice to automatically put the file in the right place in the final jar.
-    // See https://docs.minecraftforge.net/en/latest/advanced/accesstransformers/ for more information.
-    // accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
-
-    // Default run configurations.
-    // These can be tweaked, removed, or duplicated as needed.
     runs {
-        // applies to all the run configs below
         configureEach {
             workingDirectory project.file('run')
 
-            // Recommended logging data for a userdev environment
-            // The markers can be added/remove as needed separated by commas.
-            // "SCAN": For mods scan.
-            // "REGISTRIES": For firing of registry events.
-            // "REGISTRYDUMP": For getting the contents of all registries.
-            property 'forge.logging.markers', 'REGISTRIES'
-
-            // Recommended logging level for the console
-            // You can set various levels here.
-            // Please read: https://stackoverflow.com/questions/2031163/when-to-use-the-different-log-levels
             property 'forge.logging.console.level', 'debug'
 
             mods {
@@ -82,28 +33,15 @@ minecraft {
         }
 
         client {
-            // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
-            property 'forge.enabledGameTestNamespaces', mod_id
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile',
+                    "${projectDir}/build/createSrgToMcp/output.srg"
         }
 
         server {
-            property 'forge.enabledGameTestNamespaces', mod_id
-            args '--nogui'
-        }
-
-        // This run config launches GameTestServer and runs all registered gametests, then exits.
-        // By default, the server will crash when no gametests are provided.
-        // The gametest system is also enabled by default for other run configs under the /test command.
-        gameTestServer {
-            property 'forge.enabledGameTestNamespaces', mod_id
-        }
-
-        data {
-            // example of overriding the workingDirectory set in configureEach above
-            workingDirectory project.file('run-data')
-
-            // Specify the modid for data generation, where to output the resulting resource, and where to look for existing resources.
-            args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'), '--existing', file('src/main/resources/')
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile',
+                    "${projectDir}/build/createSrgToMcp/output.srg"
         }
     }
 }
@@ -113,51 +51,143 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 
 repositories {
-    exclusiveContent {
-        forRepository {
-            maven {
-                name = "CurseMaven"
-                url = "https://cursemaven.com/"
-            }
-        }
-
-        // ForgeGradleのマッピング済み依存関係の解決先を追加
-        forRepositories(fg.repository)
-
-        filter {
+    maven {
+        url = "https://www.cursemaven.com"
+        content {
             includeGroup "curse.maven"
         }
     }
+
+    maven {
+        url = "https://maven.theillusivec4.top"
+    }
+
+    mavenCentral()
 }
 
 dependencies {
-    // Specify the version of Minecraft to use.
-    // Any artifact can be supplied so long as it has a "userdev" classifier artifact and is a compatible patcher artifact.
-    // The "userdev" classifier will be requested and setup by ForgeGradle.
-    // If the group id is "net.minecraft" and the artifact id is one of ["client", "server", "joined"],
-    // then special handling is done to allow a setup of a vanilla dependency without the use of an external repository.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
-    // Example mod dependency with JEI - using fg.deobf() ensures the dependency is remapped to your development mappings
-    // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
-    // compileOnly fg.deobf("mezz.jei:jei-${mc_version}-common-api:${jei_version}")
-    // compileOnly fg.deobf("mezz.jei:jei-${mc_version}-forge-api:${jei_version}")
-    // runtimeOnly fg.deobf("mezz.jei:jei-${mc_version}-forge:${jei_version}")
+    // Cataclysm 3.31
+    compileOnly fg.deobf(
+            "curse.maven:lendercataclysm-551586:8246047"
+    )
+    runtimeOnly fg.deobf(
+            "curse.maven:lendercataclysm-551586:8246047"
+    )
 
-    // Example mod dependency using a mod jar from ./libs with a flat dir repository
-    // This maps to ./libs/coolmod-${mc_version}-${coolmod_version}.jar
-    // The group id is ignored when searching -- in this case, it is "blank"
-    // implementation fg.deobf("blank:coolmod-${mc_version}:${coolmod_version}")
+    // Lionfish API 3.0
+    runtimeOnly fg.deobf(
+            "curse.maven:lionfish-api-1001614:8095554"
+    )
 
-    // For more info:
-    // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
-    // http://www.gradle.org/docs/current/userguide/dependency_management.html
+    // Curios API 5.14.1
+    runtimeOnly fg.deobf(
+            "top.theillusivec4.curios:curios-forge:5.14.1+1.20.1"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:appleskin-248787:4770828"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:jei-238222:9394360"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:mob-battle-mod-268746:6596542"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:cult-of-azazel-1571005:8655335"
+    )
+
+    compileOnly fg.deobf(
+            "curse.maven:cult-of-azazel-1571005:8655335"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:alexs-caves-924854:5848216"
+    )
+
+    compileOnly fg.deobf(
+            "curse.maven:alexs-caves-924854:5848216"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:citadel-331936:7476570"
+    )
+
+    // Iron's Spells 'n Spellbooks
+
+    runtimeOnly fg.deobf(
+            "curse.maven:irons-spells-n-spellbooks-855414:8680180"
+    )
+
+    compileOnly fg.deobf(
+            "curse.maven:irons-spells-n-spellbooks-855414:8680180"
+    )
+
+    // T.O Magic 'n Extras
+    runtimeOnly fg.deobf(
+            "curse.maven:to-tweaks-irons-spells-1046916:9410896"
+    )
+
+    // T.O専用ライブラリ
+    runtimeOnly fg.deobf(
+            "curse.maven:gtbcs-spelllib-1194714:8824662"
+    )
+
+    // Iron's Lib
+    runtimeOnly fg.deobf(
+            "curse.maven:irons-lib-1492763:9328058"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:goety-586095:9474033"
+    )
+
+    // Goety
+    compileOnly fg.deobf(
+            "curse.maven:goety-586095:9474033"
+    )
+
+    // Goety: Revelation
+    runtimeOnly fg.deobf(
+            "curse.maven:goety-revelation-1236817:9452009"
+    )
+
+    // EndingLibrary
+    runtimeOnly fg.deobf(
+            "curse.maven:endinglibrary-1471165:9435624"
+    )
+
+    // Patchouli
+    runtimeOnly fg.deobf(
+            "curse.maven:patchouli-306770:7731017"
+    )
+
+    // Curios API
+    runtimeOnly fg.deobf(
+            "curse.maven:curios-309927:6418456"
+    )
+
+    // GeckoLib
+    runtimeOnly fg.deobf(
+            "curse.maven:geckolib-388172:8285794"
+    )
+
+    // playerAnimator
+    runtimeOnly fg.deobf(
+            "curse.maven:playeranimator-658587:4587214"
+    )
+
+    // bendy-lib
+    runtimeOnly fg.deobf(
+            "curse.maven:bendy-lib-623373:4550371"
+    )
 }
 
-// This block of code expands all declared replace properties in the specified resource targets.
-// A missing property will result in an error. Properties are expanded using ${} Groovy notation.
-// When "copyIdeResources" is enabled, this will also run before the game launches in IDE environments.
-// See https://docs.gradle.org/current/dsl/org.gradle.language.jvm.tasks.ProcessResources.html
 tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
