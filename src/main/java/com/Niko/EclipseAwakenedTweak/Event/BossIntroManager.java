@@ -30,8 +30,8 @@ public final class BossIntroManager {
         add("cataclysm:netherite_monstrosity", Trigger.CUSTOM, 0xFF8A48, 0xFFE0A0, true);
         add("cataclysm:ignis", Trigger.SPAWN, 0xFF673D, 0xFFC16E, false);
         add("cataclysm:the_harbinger", Trigger.CUSTOM, 0xFF6A72, 0xFFD16A, false);
-        add("cataclysm:the_leviathan", Trigger.SPAWN, 0x4EC5D8, 0xB4F5FF, true);
-        add("cataclysm:maledictus", Trigger.SPAWN, 0xC8558F, 0xFFD0E6, false);
+        add("cataclysm:the_leviathan", Trigger.SPAWN, 0x4b0082, 0x8a2be2, true);
+        add("cataclysm:maledictus", Trigger.SPAWN, 0xdaa520, 0x00ffff, false);
         add("cataclysm:scylla", Trigger.CUSTOM, 0x5B9DFF, 0xD0E7FF, true);
     }
 

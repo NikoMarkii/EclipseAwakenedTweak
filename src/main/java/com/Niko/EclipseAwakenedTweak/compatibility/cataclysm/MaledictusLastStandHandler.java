@@ -8,10 +8,12 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
@@ -20,6 +22,9 @@ import java.util.Locale;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.UUID;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.List;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
@@ -34,9 +39,14 @@ public final class MaledictusLastStandHandler {
     private static final String HUD_CLEARED_KEY = "eclipseawakenedtweak_maledictus_last_stand_hud_cleared";
     private static final String GOALS_CONFIGURED_KEY = "eclipseawakenedtweak_maledictus_last_stand_goals_configured";
     private static final String LAST_PLAYER_ATTACKER_KEY = "eclipseawakenedtweak_maledictus_last_player_attacker";
+    private static final String TARGET_UUID_KEY = "eclipseawakenedtweak_maledictus_last_stand_target";
     private static final long DURATION_TICKS = 20L * 20L;
     private static final String NATIVE_CHARGE_GOAL = Maledictus_Entity.class.getName() + "$MaledictusChargeGoal";
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Map<UUID, List<GoalEntry>> REMOVED_GOALS = new HashMap<>();
+    private static final Map<UUID, Float> ORIGINAL_CHARGE_CHANCES = new HashMap<>();
+
+    private record GoalEntry(int priority, Goal goal) {}
 
     private MaledictusLastStandHandler() {}
 
@@ -56,6 +66,11 @@ public final class MaledictusLastStandHandler {
         }
 
         CompoundTag data = boss.getPersistentData();
+        // Commands and other bypass damage (notably /kill) must retain their
+        // normal lethal behavior instead of being converted into the phase.
+        if (event.getSource().is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            return;
+        }
         Entity attacker = event.getSource().getEntity();
         if (!(attacker instanceof Player) && event.getSource().getDirectEntity() instanceof Projectile projectile) {
             attacker = projectile.getOwner();
@@ -84,7 +99,52 @@ public final class MaledictusLastStandHandler {
             data.putBoolean(OPENING_SMASH_DONE_KEY, false);
             data.putInt(HUD_SECOND_KEY, -1);
             data.putBoolean(HUD_CLEARED_KEY, false);
+            LivingEntity target = boss.getTarget();
+            if (target != null) {
+                data.putUUID(TARGET_UUID_KEY, target.getUUID());
+            } else {
+                data.remove(TARGET_UUID_KEY);
+            }
         }
+    }
+
+    @SubscribeEvent
+    public static void onLivingDeath(LivingDeathEvent event) {
+        if (!(event.getEntity().level() instanceof ServerLevel level) || level.isClientSide) {
+            return;
+        }
+        UUID deadTarget = event.getEntity().getUUID();
+        for (Entity entity : level.getEntities().getAll()) {
+            if (entity instanceof Maledictus_Entity boss) {
+                CompoundTag data = boss.getPersistentData();
+                if (data.getBoolean(ACTIVE_KEY) && data.hasUUID(TARGET_UUID_KEY)
+                        && deadTarget.equals(data.getUUID(TARGET_UUID_KEY))) {
+                    resetLastStand(boss, data);
+                }
+            }
+        }
+    }
+
+    private static void resetLastStand(Maledictus_Entity boss, CompoundTag data) {
+        data.putBoolean(ACTIVE_KEY, false);
+        data.putBoolean(TIMER_STARTED_KEY, false);
+        data.putBoolean(EXPIRED_KEY, false);
+        data.putBoolean(OPENING_SMASH_DONE_KEY, false);
+        data.putBoolean(HUD_CLEARED_KEY, true);
+        data.remove(TARGET_UUID_KEY);
+        List<GoalEntry> removed = REMOVED_GOALS.remove(boss.getUUID());
+        if (removed != null) {
+            for (GoalEntry entry : removed) {
+                boss.goalSelector.addGoal(entry.priority(), entry.goal());
+            }
+        }
+        data.putBoolean(GOALS_CONFIGURED_KEY, false);
+        Float originalChance = ORIGINAL_CHARGE_CHANCES.remove(boss.getUUID());
+        if (originalChance != null) {
+            setNativeChargeChance(boss, originalChance);
+        }
+        broadcastActionBar(boss, Component.empty());
+        boss.setTarget(null);
     }
 
     @SubscribeEvent
@@ -96,6 +156,15 @@ public final class MaledictusLastStandHandler {
         CompoundTag data = boss.getPersistentData();
         if (!data.getBoolean(ACTIVE_KEY)) {
             return;
+        }
+
+        if (data.hasUUID(TARGET_UUID_KEY)) {
+            Entity target = boss.level() instanceof ServerLevel serverLevel
+                    ? serverLevel.getEntity(data.getUUID(TARGET_UUID_KEY)) : null;
+            if (target != null && !target.isAlive()) {
+                resetLastStand(boss, data);
+                return;
+            }
         }
 
         boss.setHealth(1.0F);
@@ -168,6 +237,7 @@ public final class MaledictusLastStandHandler {
             return;
         }
 
+        List<GoalEntry> removedGoals = REMOVED_GOALS.computeIfAbsent(boss.getUUID(), ignored -> new ArrayList<>());
         for (var wrapped : new ArrayList<>(boss.goalSelector.getAvailableGoals())) {
             String goalName = wrapped.getGoal().getClass().getName();
             boolean keepChargeChain = goalName.contains("MaledictusChargeState");
@@ -175,6 +245,7 @@ public final class MaledictusLastStandHandler {
             boolean keepMovement = goalName.endsWith("InternalMoveGoal");
             boolean keepOpening = wrapped.getGoal() instanceof LastStandAttackGoal;
             if (!keepChargeChain && !keepNativeCharge && !keepMovement && !keepOpening) {
+                removedGoals.add(new GoalEntry(wrapped.getPriority(), wrapped.getGoal()));
                 boss.goalSelector.removeGoal(wrapped.getGoal());
             }
         }
@@ -185,6 +256,7 @@ public final class MaledictusLastStandHandler {
             boss.goalSelector.addGoal(0, new LastStandAttackGoal(boss));
         }
 
+        ORIGINAL_CHARGE_CHANCES.computeIfAbsent(boss.getUUID(), ignored -> getNativeChargeChance(boss));
         boolean tunedNativeGoal = setNativeChargeChance(boss, 100.0F);
         if (!tunedNativeGoal) {
             LOGGER.error("Cataclysm's native Maledictus charge goal was not found");
@@ -221,6 +293,22 @@ public final class MaledictusLastStandHandler {
             LOGGER.error("Unable to update Cataclysm's native Maledictus charge chance", exception);
         }
         return false;
+    }
+
+    private static Float getNativeChargeChance(Maledictus_Entity boss) {
+        try {
+            for (var wrapped : boss.goalSelector.getAvailableGoals()) {
+                Goal goal = wrapped.getGoal();
+                if (goal.getClass().getName().equals(NATIVE_CHARGE_GOAL)) {
+                    Field randomChance = goal.getClass().getDeclaredField("random");
+                    randomChance.setAccessible(true);
+                    return randomChance.getFloat(goal);
+                }
+            }
+        } catch (ReflectiveOperationException | SecurityException exception) {
+            LOGGER.error("Unable to read Cataclysm's Maledictus charge chance", exception);
+        }
+        return null;
     }
 
     private static void setNativeChargeCooldown(Maledictus_Entity boss, int ticks) {
