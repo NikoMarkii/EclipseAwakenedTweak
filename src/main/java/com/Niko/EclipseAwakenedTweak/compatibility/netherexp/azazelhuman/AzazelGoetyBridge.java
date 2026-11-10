@@ -1,4 +1,4 @@
-package com.Niko.EclipseAwakenedTweak.compatibility.netherexp;
+package com.Niko.EclipseAwakenedTweak.compatibility.netherexp.azazelhuman;
 
 import com.benji.netherman.entity.AzazelHumanEntity;
 import net.minecraft.world.entity.Entity;
@@ -6,7 +6,7 @@ import net.minecraft.world.entity.LivingEntity;
 
 /** Keeps Goety optional while forwarding Azazel phase actions when it is installed. */
 public final class AzazelGoetyBridge {
-    private static final String MAGIC_CLASS = "com.Niko.EclipseAwakenedTweak.compatibility.netherexp.AzazelGoetyMagic";
+    private static final String MAGIC_CLASS = "com.Niko.EclipseAwakenedTweak.compatibility.netherexp.azazelhuman.AzazelGoetyMagic";
     private static volatile Class<?> magicType;
     private static volatile boolean magicLookupAttempted;
 
@@ -14,6 +14,14 @@ public final class AzazelGoetyBridge {
 
     public static void halfPhase(AzazelHumanEntity azazel, LivingEntity target) {
         invoke("triggerHalfHealth", azazel, target);
+    }
+
+    public static void thirtyPercentPhase(AzazelHumanEntity azazel, LivingEntity target) {
+        invoke("triggerThirtyPercent", azazel, target);
+    }
+
+    public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target) {
+        invoke("castGoetyHellBlast", azazel, target);
     }
 
     public static void castNetherSpell(AzazelHumanEntity azazel, LivingEntity target) {
@@ -82,6 +90,7 @@ public final class AzazelGoetyBridge {
             Class<?>[] parameterTypes = switch (method) {
                 case "summonNetherServant" -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class, int.class};
                 case "prepareSpell" -> new Class<?>[]{AzazelHumanEntity.class, boolean.class};
+                case "castGoetyHellBlast" -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class};
                 default -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class};
             };
             magic.getMethod(method, parameterTypes).invoke(null, args);

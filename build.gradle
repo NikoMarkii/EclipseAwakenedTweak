@@ -87,6 +87,14 @@ dependencies {
     )
 
     runtimeOnly fg.deobf(
+            "curse.maven:legendary-monsters-944035:9301655"
+    )
+
+    compileOnly fg.deobf(
+            "curse.maven:legendary-monsters-944035:9301655"
+    )
+
+    runtimeOnly fg.deobf(
             "curse.maven:appleskin-248787:4770828"
     )
 
@@ -193,6 +201,18 @@ dependencies {
 
     runtimeOnly fg.deobf(
             "curse.maven:jade-324717:8479276"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:corpse-316582:7018272"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:corpse-x-curios-api-compat-1138130:9137863"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:baguettelib-1264423:8887462"
     )
 }
 

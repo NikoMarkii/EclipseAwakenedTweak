@@ -1,16 +1,16 @@
-package com.Niko.EclipseAwakenedTweak.compatibility.netherexp;
+package com.Niko.EclipseAwakenedTweak.compatibility.netherexp.azazelhuman;
 
 import com.Polarice3.Goety.common.entities.ModEntityType;
 import com.Polarice3.Goety.common.entities.neutral.AbstractObsidianMonolith;
 import com.Polarice3.Goety.common.entities.hostile.servants.Damned;
 import com.Polarice3.Goety.common.entities.hostile.servants.Inferno;
 import com.Polarice3.Goety.common.entities.neutral.Owned;
-import com.Polarice3.Goety.common.entities.projectiles.FireTornado;
 import com.Polarice3.Goety.common.entities.projectiles.HellCloud;
 import com.Polarice3.Goety.common.entities.projectiles.NetherMeteor;
 import com.Polarice3.Goety.common.entities.projectiles.SpellEntity;
 import com.Polarice3.Goety.common.entities.util.SummonCircle;
 import com.Polarice3.Goety.init.ModSounds;
+import com.Polarice3.Goety.common.entities.projectiles.HellBlast;
 import com.benji.netherman.entity.AzazelHumanEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.MobSpawnType;
@@ -53,7 +53,7 @@ public final class AzazelGoetyMagic {
 
     public static void triggerHalfHealth(AzazelHumanEntity azazel, LivingEntity target) {
         if (!(azazel.level() instanceof ServerLevel level)) return;
-        summonMonolith(level, azazel, target);
+        summonMonolith(level, azazel, target, 2);
         for (int i = 0; i < 7; i++) {
             double angle = Math.PI * 2.0D * i / 7.0D + azazel.getRandom().nextDouble() * 0.2D;
             double radius = 4.0D + azazel.getRandom().nextDouble() * 9.0D;
@@ -63,9 +63,29 @@ public final class AzazelGoetyMagic {
         }
     }
 
+    public static void triggerThirtyPercent(AzazelHumanEntity azazel, LivingEntity target) {
+        if (azazel.level() instanceof ServerLevel level) {
+            summonMonolith(level, azazel, target, 3);
+        }
+    }
+
+    public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target) {
+        if (!(azazel.level() instanceof ServerLevel level) || target == null || !target.isAlive()) return;
+
+        double dx = target.getX() - azazel.getX();
+        double dy = target.getY(0.5D) - azazel.getY(0.5D);
+        double dz = target.getZ() - azazel.getZ();
+        HellBlast blast = new HellBlast(azazel, dx, dy, dz, level);
+        blast.setPos(blast.getX(), azazel.getY(0.5D), blast.getZ());
+        level.addFreshEntity(blast);
+        if (!azazel.isSilent()) {
+            level.levelEvent(null, 1016, azazel.blockPosition(), 0);
+        }
+    }
+
     public static void castNetherSpell(AzazelHumanEntity azazel, LivingEntity target) {
         if (!(azazel.level() instanceof ServerLevel level) || target == null || !target.isAlive()) return;
-        int spell = azazel.getRandom().nextInt(3);
+        int spell = azazel.getRandom().nextInt(2);
         if (spell == 0) {
             HellCloud cloud = new HellCloud(level, azazel, target);
             cloud.setRadius(2.0F);
@@ -79,11 +99,6 @@ public final class AzazelGoetyMagic {
                 spawnMeteor(level, azazel, center.x + Math.cos(angle) * radius, center.y + 16.0D,
                         center.z + Math.sin(angle) * radius);
             }
-        } else {
-            FireTornado tornado = new FireTornado(level, azazel, target.getX(), target.getY(), target.getZ());
-            tornado.setOwner(azazel);
-            tornado.setTarget(target);
-            level.addFreshEntity(tornado);
         }
     }
 
@@ -126,12 +141,13 @@ public final class AzazelGoetyMagic {
         level.addFreshEntity(damned);
     }
 
-    private static void summonMonolith(ServerLevel level, AzazelHumanEntity azazel, LivingEntity target) {
+    private static void summonMonolith(ServerLevel level, AzazelHumanEntity azazel,
+                                       LivingEntity target, int count) {
         double angleOffset = azazel.getRandom().nextDouble() * Math.PI * 2.0D;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < count; i++) {
             Mob monolith = ModEntityType.OBSIDIAN_MONOLITH.get().create(level);
             if (monolith == null) continue;
-            double angle = angleOffset + Math.PI * 2.0D * i / 3.0D;
+            double angle = angleOffset + Math.PI * 2.0D * i / count;
             double radius = 8.0D;
             monolith.moveTo(azazel.getX() + Math.cos(angle) * radius, azazel.getY(),
                     azazel.getZ() + Math.sin(angle) * radius, azazel.getYRot(), 0.0F);

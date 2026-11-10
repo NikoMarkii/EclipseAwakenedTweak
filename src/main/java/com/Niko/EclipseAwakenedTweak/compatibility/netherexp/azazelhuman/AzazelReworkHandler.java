@@ -1,4 +1,4 @@
-package com.Niko.EclipseAwakenedTweak.compatibility.netherexp;
+package com.Niko.EclipseAwakenedTweak.compatibility.netherexp.azazelhuman;
 
 import com.benji.netherman.NetherExp;
 import com.benji.netherman.config.AzazelConfig;
@@ -11,7 +11,6 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.ai.targeting.TargetingConditions;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
@@ -21,16 +20,13 @@ import net.minecraft.nbt.Tag;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.MobEffectEvent;
 import net.minecraftforge.event.entity.ProjectileImpactEvent;
-
-import java.lang.reflect.Field;
 
 /** Adds non-player targets and phase-two Nether attacks to NetherExp's human Azazel. */
 public final class AzazelReworkHandler {
     private static final String PREFIX = "eclipseawakenedtweak.azazel_human.";
-    private static final Field LONG_RANGE_NEEDLE_PATTERN_FIELD = findLongRangeNeedlePatternField();
-
     private AzazelReworkHandler() {}
 
     @SubscribeEvent
@@ -96,6 +92,15 @@ public final class AzazelReworkHandler {
         }
     }
 
+    /** Caps NetherExp's 100 HP heal during the defense animation to a visible, recoverable amount. */
+    @SubscribeEvent
+    public static void onAzazelHeal(LivingHealEvent event) {
+        if (event.getEntity() instanceof AzazelHumanEntity azazel
+                && azazel.getEntityData().get(AzazelHumanEntity.BOSS_STATE) == 22) {
+            event.setAmount(Math.min(event.getAmount(), azazel.getMaxHealth() * 0.10F));
+        }
+    }
+
     @SubscribeEvent
     public static void onBreathDebuffApplicable(MobEffectEvent.Applicable event) {
         if (!(event.getEntity() instanceof Player player) || player.level().isClientSide()) return;
@@ -130,65 +135,82 @@ public final class AzazelReworkHandler {
         var data = azazel.getPersistentData();
         if (azazel.getEntityData().get(AzazelHumanEntity.BOSS_STATE) < 5) return;
 
-        Entity monolith = AzazelGoetyBridge.getOwnedObsidianMonolith(azazel);
         int state = azazel.getEntityData().get(AzazelHumanEntity.BOSS_STATE);
-        if (monolith != null && (state == 12 || state == 13)) {
-            // NetherExp states 12 and 13 are the run/jump attack rush sequence.
-            // Cancel it while the monolith arena is active so Azazel stays tethered to the monolith.
-            azazel.getEntityData().set(AzazelHumanEntity.BOSS_STATE, 5);
-            Vec3 velocity = azazel.getDeltaMovement();
-            azazel.setDeltaMovement(0.0D, velocity.y, 0.0D);
-            state = 5;
-        }
+        String wasOnGroundKey = PREFIX + "wasOnGround";
+        boolean wasOnGround = data.contains(wasOnGroundKey, net.minecraft.nbt.Tag.TAG_BYTE)
+                ? data.getBoolean(wasOnGroundKey) : azazel.onGround();
         int previousAttackState = data.getInt(PREFIX + "attackState");
         if (previousAttackState != state) {
             data.putInt(PREFIX + "attackState", state);
             data.putInt(PREFIX + "attackAge", 0);
             data.remove(PREFIX + "rushHitEntities");
+            data.remove(PREFIX + "jumpImpactPillarsDone");
             if (state != 5) data.remove(PREFIX + "queuedRangeGoal");
         } else {
             data.putInt(PREFIX + "attackAge", data.getInt(PREFIX + "attackAge") + 1);
         }
 
         long now = level.getGameTime();
-        LivingEntity target = acquireTarget(azazel, monolith);
-        if (target != null) {
-            // Keep the boss oriented toward its active target even during attack animations.
-            azazel.getLookControl().setLookAt(target, 30.0F, 30.0F);
-        }
-        if (monolith instanceof LivingEntity livingMonolith && azazel.distanceToSqr(monolith) > 14.0D * 14.0D) {
-            azazel.setTarget(null);
-            azazel.getNavigation().moveTo(livingMonolith, 1.15D);
-            target = null;
-        } else if (target != null && canPursueDuringState(state)
-                && (monolith == null || azazel.distanceToSqr(monolith) <= 14.0D * 14.0D)
-                && azazel.distanceToSqr(target) > 4.0D * 4.0D
-                && now >= data.getLong(PREFIX + "nextPursuitPath")) {
-            // Keep closing during ranged attack animations, with faster pursuit at long range.
-            azazel.getLookControl().setLookAt(target, 30.0F, 30.0F);
-            double distance = azazel.distanceTo(target);
-            boolean phaseTwo = azazel.getEntityData().get(AzazelHumanEntity.IS_PHASE_2);
-            double speed = distance > 20.0D ? 1.65D : distance > 10.0D ? 1.45D : 1.25D;
-            if (phaseTwo) speed += 0.1D;
-            azazel.getNavigation().moveTo(target, speed);
-            data.putLong(PREFIX + "nextPursuitPath", now + 5L);
-        }
-        suppressFarNeedleAttacks(azazel, target);
-        queueRangeBasedAttack(azazel, target, state, now, data);
+        // Leave target selection, facing, movement, and attack choice to NetherExp's AI.
+        LivingEntity target = azazel.getTarget();
         int attackAge = data.getInt(PREFIX + "attackAge");
         applyNonPlayerAttackHitboxes(azazel, target, state, attackAge);
         applyRushHit(azazel, state, data);
+        if (state == 13 && !wasOnGround && azazel.onGround()
+                && !data.getBoolean(PREFIX + "jumpImpactPillarsDone")) {
+            AzazelSoulPillarBridge.spawnImpactRings(azazel);
+            data.putBoolean(PREFIX + "jumpImpactPillarsDone", true);
+        }
+        data.putBoolean(wasOnGroundKey, azazel.onGround());
 
         if (azazel.getHealth() <= azazel.getMaxHealth() * 0.5F
                 && !data.getBoolean(PREFIX + "halfPhase")) {
             data.putBoolean(PREFIX + "halfPhase", true);
             data.putLong(PREFIX + "halfPhaseAt", now + 40L);
+            data.putInt(PREFIX + "halfIdleTicks", 0);
             AzazelGoetyBridge.prepareSpell(azazel, true);
         }
 
-        if (data.getLong(PREFIX + "halfPhaseAt") > 0L && now >= data.getLong(PREFIX + "halfPhaseAt")) {
-            data.putLong(PREFIX + "halfPhaseAt", 0L);
-            AzazelGoetyBridge.halfPhase(azazel, target);
+        if (azazel.getHealth() <= azazel.getMaxHealth() * 0.3F
+                && !data.getBoolean(PREFIX + "thirtyPercentPhase")) {
+            data.putBoolean(PREFIX + "thirtyPercentPhase", true);
+            data.putLong(PREFIX + "thirtyPercentPhaseAt", now + 80L);
+            data.putInt(PREFIX + "thirtyIdleTicks", 0);
+            AzazelGoetyBridge.prepareSpell(azazel, true);
+        }
+
+        boolean vanillaPhaseIdle = state == 5;
+        if (data.getLong(PREFIX + "halfPhaseAt") > 0L) {
+            int idleTicks = vanillaPhaseIdle ? data.getInt(PREFIX + "halfIdleTicks") + 1 : 0;
+            data.putInt(PREFIX + "halfIdleTicks", idleTicks);
+            if (now >= data.getLong(PREFIX + "halfPhaseAt") && idleTicks >= 10) {
+                data.putLong(PREFIX + "halfPhaseAt", 0L);
+                data.putBoolean(PREFIX + "halfPhaseSpawned", true);
+                AzazelGoetyBridge.halfPhase(azazel, target);
+            }
+        }
+
+        if (data.getLong(PREFIX + "thirtyPercentPhaseAt") > 0L
+                && data.getBoolean(PREFIX + "halfPhaseSpawned")) {
+            int idleTicks = vanillaPhaseIdle ? data.getInt(PREFIX + "thirtyIdleTicks") + 1 : 0;
+            data.putInt(PREFIX + "thirtyIdleTicks", idleTicks);
+            if (now >= data.getLong(PREFIX + "thirtyPercentPhaseAt") && idleTicks >= 10) {
+                data.putLong(PREFIX + "thirtyPercentPhaseAt", 0L);
+                AzazelGoetyBridge.thirtyPercentPhase(azazel, target);
+            }
+        }
+
+        if (target != null && net.minecraftforge.fml.ModList.get().isLoaded("goety")) {
+            if (now >= data.getLong(PREFIX + "nextGoetyHellBlast")) {
+                data.putLong(PREFIX + "nextGoetyHellBlast", now + 200L);
+                data.putLong(PREFIX + "goetyHellBlastAt", now + 25L);
+                AzazelGoetyBridge.prepareSpell(azazel, false);
+            }
+            if (data.getLong(PREFIX + "goetyHellBlastAt") > 0L
+                    && now >= data.getLong(PREFIX + "goetyHellBlastAt")) {
+                data.putLong(PREFIX + "goetyHellBlastAt", 0L);
+                AzazelGoetyBridge.castGoetyHellBlast(azazel, target);
+            }
         }
 
         if (target == null || !data.getBoolean(PREFIX + "halfPhase")) return;
@@ -229,106 +251,6 @@ public final class AzazelReworkHandler {
         }
     }
 
-    private static LivingEntity acquireTarget(AzazelHumanEntity azazel, Entity monolith) {
-        LivingEntity current = azazel.getTarget();
-        boolean currentValid = isValidTarget(azazel, current) && isWithinMonolithArena(current, monolith);
-        if (currentValid && azazel.tickCount % 20 != 0) return current;
-
-        net.minecraft.world.phys.AABB search = monolith == null
-                ? azazel.getBoundingBox().inflate(128.0D)
-                : monolith.getBoundingBox().inflate(14.0D);
-        double range = monolith == null ? 128.0D : 14.0D;
-        LivingEntity target = azazel.level().getNearestEntity(
-                azazel.level().getEntitiesOfClass(LivingEntity.class, search,
-                        candidate -> isValidTarget(azazel, candidate) && isWithinMonolithArena(candidate, monolith)),
-                TargetingConditions.forCombat().range(range), azazel,
-                monolith == null ? azazel.getX() : monolith.getX(),
-                monolith == null ? azazel.getY() : monolith.getY(),
-                monolith == null ? azazel.getZ() : monolith.getZ());
-        if (currentValid && (target == null
-                || azazel.distanceToSqr(target) >= azazel.distanceToSqr(current) * 0.64D)) {
-            return current;
-        }
-        azazel.setTarget(target);
-        return target;
-    }
-
-    private static boolean isWithinMonolithArena(LivingEntity target, Entity monolith) {
-        return monolith == null || target.distanceToSqr(monolith) <= 14.0D * 14.0D;
-    }
-
-    private static boolean canPursueDuringState(int state) {
-        // Ranged attacks remain stationary; the idle state prioritizes closing the distance.
-        return state == 5;
-    }
-
-    private static void queueRangeBasedAttack(AzazelHumanEntity azazel, LivingEntity target, int state,
-                                               long now, net.minecraft.nbt.CompoundTag data) {
-        if (state != 5 || target == null || !isValidTarget(azazel, target)) return;
-        if (azazel.forcedAttackGoal == 4 || azazel.forcedAttackGoal == 5) return;
-
-        double distance = azazel.distanceTo(target);
-        if (distance > 10.0D) {
-            // Beyond attack range, discard queued offense and let the movement goal close in.
-            if (azazel.forcedAttackGoal >= 1 && azazel.forcedAttackGoal <= 3) {
-                azazel.forcedAttackGoal = 0;
-            }
-            data.remove(PREFIX + "queuedRangeGoal");
-            return;
-        }
-
-        int rangeGoal = distance < 4.0D
-                ? (azazel.getRandom().nextFloat() < 0.3F ? 3 : 1)
-                : 2;
-        boolean attackReady = now >= data.getLong(PREFIX + "nextSmartAttack");
-        int queuedGoal = azazel.forcedAttackGoal;
-        long attackCooldown = azazel.getEntityData().get(AzazelHumanEntity.IS_PHASE_2) ? 22L : 35L;
-
-        // Pick a new attack only when idle and off cooldown. Once NetherExp has queued an
-        // attack, keep the selected goal stable until it starts instead of rewriting it every tick.
-        if (queuedGoal == 0) {
-            if (!attackReady) return;
-            azazel.forcedAttackGoal = rangeGoal;
-            data.putInt(PREFIX + "queuedRangeGoal", rangeGoal);
-            data.putLong(PREFIX + "nextSmartAttack", now + attackCooldown);
-        } else if (queuedGoal >= 1 && queuedGoal <= 3) {
-            // NetherExp may queue a random range goal itself; lock it to the range at queue time.
-            int lockedGoal = data.getInt(PREFIX + "queuedRangeGoal");
-            if (lockedGoal == 0) {
-                lockedGoal = rangeGoal;
-                data.putInt(PREFIX + "queuedRangeGoal", lockedGoal);
-            }
-            azazel.forcedAttackGoal = lockedGoal;
-        }
-    }
-
-    private static void suppressFarNeedleAttacks(AzazelHumanEntity azazel, LivingEntity target) {
-        if (target == null || azazel.getEntityData().get(AzazelHumanEntity.BOSS_STATE) != 51
-                || LONG_RANGE_NEEDLE_PATTERN_FIELD == null) return;
-        int desiredPattern = azazel.distanceTo(target) <= 4.0D ? 1 : 3;
-        for (var wrappedGoal : azazel.goalSelector.getAvailableGoals()) {
-            if (!wrappedGoal.getGoal().getClass().getName().equals(
-                    "com.benji.netherman.entity.AzazelHumanLongRangeGoal")) continue;
-            try {
-                // Patterns 1/2 rotate the needles around Azazel; pattern 3 is target-centered.
-                LONG_RANGE_NEEDLE_PATTERN_FIELD.setInt(wrappedGoal.getGoal(), desiredPattern);
-            } catch (IllegalAccessException ignored) {
-                return;
-            }
-        }
-    }
-
-    private static Field findLongRangeNeedlePatternField() {
-        try {
-            Class<?> goalClass = Class.forName("com.benji.netherman.entity.AzazelHumanLongRangeGoal");
-            Field field = goalClass.getDeclaredField("spikePattern");
-            field.setAccessible(true);
-            return field;
-        } catch (ReflectiveOperationException | LinkageError | RuntimeException ignored) {
-            return null;
-        }
-    }
-
     private static boolean isValidTarget(AzazelHumanEntity azazel, LivingEntity candidate) {
         return candidate != null && candidate != azazel
                 && candidate.isAlive() && candidate.isAttackable()
@@ -341,6 +263,7 @@ public final class AzazelReworkHandler {
         if (!(azazel.level() instanceof ServerLevel)) return;
 
         if (state == 20 && age == 14) {
+            AzazelSoulPillarBridge.spawnImpactRings(azazel);
             float damage = AzazelConfig.HUMAN_STOMP_DAMAGE.get().floatValue();
             double knockback = AzazelConfig.HUMAN_STOMP_KNOCKBACK.get();
             for (LivingEntity target : nearbyNonPlayerTargets(azazel, 15.0D)) {
@@ -499,6 +422,7 @@ public final class AzazelReworkHandler {
         if (goetyLoaded) choice--;
 
         if (choice == 0) {
+            if (hasLivingOwnedGolem(azazel, level)) return;
             GildedGolemEntity golem = NetherExp.GILDED_GOLEM.get().create(level);
             if (golem == null) return;
             golem.moveTo(azazel.getX() + 4.0D, azazel.getY(), azazel.getZ(), azazel.getYRot(), 0.0F);
@@ -506,6 +430,7 @@ public final class AzazelReworkHandler {
             golem.setTarget(target);
             level.addFreshEntity(golem);
         } else {
+            if (hasLivingOwnedGuardian(azazel, level)) return;
             GuardianEntity guardian = NetherExp.GUARDIAN.get().create(level);
             if (guardian == null) return;
             guardian.moveTo(azazel.getX() - 4.0D, azazel.getY(), azazel.getZ(), azazel.getYRot(), 0.0F);
@@ -514,5 +439,21 @@ public final class AzazelReworkHandler {
             guardian.startSpawning();
             level.addFreshEntity(guardian);
         }
+    }
+
+    private static boolean hasLivingOwnedGolem(AzazelHumanEntity azazel, ServerLevel level) {
+        for (Entity entity : level.getAllEntities()) {
+            if (entity instanceof GildedGolemEntity golem && golem.isAlive()
+                    && azazel.getUUID().equals(golem.getCreatorUUID())) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasLivingOwnedGuardian(AzazelHumanEntity azazel, ServerLevel level) {
+        for (Entity entity : level.getAllEntities()) {
+            if (entity instanceof GuardianEntity guardian && guardian.isAlive()
+                    && azazel.getUUID().equals(guardian.getOwnerUUID())) return true;
+        }
+        return false;
     }
 }
