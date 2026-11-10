@@ -177,6 +177,10 @@ dependencies {
             "curse.maven:geckolib-388172:8285794"
     )
 
+    compileOnly fg.deobf(
+            "curse.maven:geckolib-388172:8285794"
+    )
+
     // playerAnimator
     runtimeOnly fg.deobf(
             "curse.maven:playeranimator-658587:4587214"
@@ -185,6 +189,10 @@ dependencies {
     // bendy-lib
     runtimeOnly fg.deobf(
             "curse.maven:bendy-lib-623373:4550371"
+    )
+
+    runtimeOnly fg.deobf(
+            "curse.maven:jade-324717:8479276"
     )
 }
 
