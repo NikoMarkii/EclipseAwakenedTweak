@@ -19,5 +19,7 @@
   "boss_intro.cataclysm.ignis.name": "Ignis",
   "boss_intro.cataclysm.the_harbinger.name": "The Harbinger",
   "boss_intro.cataclysm.the_leviathan.name": "The Leviathan",
-  "boss_intro.cataclysm.scylla.name": "Scylla"
+  "boss_intro.cataclysm.scylla.name": "Scylla",
+  "boss_intro.netherman.azazel_human": "Harbinger of the Nether",
+  "boss_intro.netherman.azazel_human.name": "Azazel"
 }

@@ -1,0 +1,7 @@
+{
+  "entity_type": "cataclysm:maledictus",
+  "trigger": "spawn",
+  "subtitle_color": "#DAA520",
+  "name_color": "#00FFFF",
+  "simultaneous": false
+}

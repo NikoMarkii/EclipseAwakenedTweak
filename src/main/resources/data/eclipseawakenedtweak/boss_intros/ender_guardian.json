@@ -1,0 +1,7 @@
+{
+  "entity_type": "cataclysm:ender_guardian",
+  "trigger": "spawn",
+  "subtitle_color": "#9A78FF",
+  "name_color": "#D8C5FF",
+  "simultaneous": false
+}

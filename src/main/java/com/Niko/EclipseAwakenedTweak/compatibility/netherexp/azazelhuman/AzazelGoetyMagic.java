@@ -92,14 +92,15 @@ public final class AzazelGoetyMagic {
     public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target, int direction) {
         if (!(azazel.level() instanceof ServerLevel level) || target == null || !target.isAlive()) return;
 
+        double sourceHeadY = azazel.getEyeY();
         double dx = target.getX() - azazel.getX();
-        double dy = target.getY(0.5D) - azazel.getY(0.5D);
+        double dy = target.getEyeY() - sourceHeadY;
         double dz = target.getZ() - azazel.getZ();
         double offset = Math.toRadians((direction - 1) * 18.0D);
         double rotatedX = dx * Math.cos(offset) - dz * Math.sin(offset);
         double rotatedZ = dx * Math.sin(offset) + dz * Math.cos(offset);
         HellBlast blast = new HellBlast(azazel, rotatedX, dy, rotatedZ, level);
-        blast.setPos(blast.getX(), azazel.getY(0.5D), blast.getZ());
+        blast.setPos(azazel.getX(), sourceHeadY, azazel.getZ());
         level.addFreshEntity(blast);
         if (!azazel.isSilent()) {
             level.levelEvent(null, 1016, azazel.blockPosition(), 0);

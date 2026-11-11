@@ -1,0 +1,7 @@
+{
+  "entity_type": "minecraft:ender_dragon",
+  "trigger": "spawn",
+  "subtitle_color": "#C887FF",
+  "name_color": "#F2C5FF",
+  "simultaneous": false
+}

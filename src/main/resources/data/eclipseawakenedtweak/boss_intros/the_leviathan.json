@@ -1,0 +1,7 @@
+{
+  "entity_type": "cataclysm:the_leviathan",
+  "trigger": "spawn",
+  "subtitle_color": "#4B0082",
+  "name_color": "#8A2BE2",
+  "simultaneous": true
+}

@@ -1,0 +1,7 @@
+{
+  "entity_type": "minecraft:wither",
+  "trigger": "spawn",
+  "subtitle_color": "#AFAFAF",
+  "name_color": "#F0F0F0",
+  "simultaneous": true
+}

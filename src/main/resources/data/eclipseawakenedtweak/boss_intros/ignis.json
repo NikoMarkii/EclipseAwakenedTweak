@@ -1,0 +1,7 @@
+{
+  "entity_type": "cataclysm:ignis",
+  "trigger": "spawn",
+  "subtitle_color": "#FF673D",
+  "name_color": "#FFC16E",
+  "simultaneous": false
+}

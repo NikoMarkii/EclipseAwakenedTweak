@@ -1,5 +1,6 @@
 package com.Niko.EclipseAwakenedTweak.compatibility.netherexp.azazelhuman;
 
+import com.Niko.EclipseAwakenedTweak.Event.BossIntroManager;
 import com.benji.netherman.NetherExp;
 import com.benji.netherman.config.AzazelConfig;
 import com.benji.netherman.entity.AzazelHumanEntity;
@@ -20,6 +21,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.MobEffectEvent;
 import net.minecraftforge.event.entity.ProjectileImpactEvent;
@@ -101,6 +103,19 @@ public final class AzazelReworkHandler {
         }
     }
 
+    /** Starts the owner's one-minute golem cooldown when an owned gilded golem dies. */
+    @SubscribeEvent
+    public static void onOwnedGolemDeath(LivingDeathEvent event) {
+        if (!(event.getEntity() instanceof GildedGolemEntity golem)
+                || golem.level().isClientSide()
+                || !(golem.level() instanceof ServerLevel level)) return;
+        AzazelHumanEntity owner = findSummoner(golem);
+        if (owner != null) {
+            owner.getPersistentData().putLong(PREFIX + "golemSummonCooldownUntil",
+                    level.getGameTime() + 1200L);
+        }
+    }
+
     @SubscribeEvent
     public static void onBreathDebuffApplicable(MobEffectEvent.Applicable event) {
         if (!(event.getEntity() instanceof Player player) || player.level().isClientSide()) return;
@@ -140,6 +155,12 @@ public final class AzazelReworkHandler {
         boolean wasOnGround = data.contains(wasOnGroundKey, net.minecraft.nbt.Tag.TAG_BYTE)
                 ? data.getBoolean(wasOnGroundKey) : azazel.onGround();
         int previousAttackState = data.getInt(PREFIX + "attackState");
+        if (state == 5 && previousAttackState != 5) {
+            var entityTypeId = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(azazel.getType());
+            BossIntroManager.register(entityTypeId,
+                    new BossIntroManager.Profile(BossIntroManager.Trigger.CUSTOM, 0xFF6B2C, 0xFFD080, false));
+            BossIntroManager.trigger(azazel);
+        }
         if (previousAttackState != state) {
             data.putInt(PREFIX + "attackState", state);
             data.putInt(PREFIX + "attackAge", 0);
@@ -465,7 +486,8 @@ public final class AzazelReworkHandler {
             return;
         }
 
-        if (hasLivingOwnedGolem(azazel, level)) return;
+        if (hasLivingOwnedGolem(azazel, level)
+                || level.getGameTime() < azazel.getPersistentData().getLong(PREFIX + "golemSummonCooldownUntil")) return;
         GildedGolemEntity golem = NetherExp.GILDED_GOLEM.get().create(level);
         if (golem == null) return;
         golem.moveTo(azazel.getX() + 4.0D, azazel.getY(), azazel.getZ(), azazel.getYRot(), 0.0F);
