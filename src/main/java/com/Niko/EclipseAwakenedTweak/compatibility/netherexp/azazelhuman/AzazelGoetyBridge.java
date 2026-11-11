@@ -16,12 +16,16 @@ public final class AzazelGoetyBridge {
         invoke("triggerHalfHealth", azazel, target);
     }
 
+    public static void seventyPercentPhase(AzazelHumanEntity azazel, LivingEntity target) {
+        invoke("triggerSeventyPercent", azazel, target);
+    }
+
     public static void thirtyPercentPhase(AzazelHumanEntity azazel, LivingEntity target) {
         invoke("triggerThirtyPercent", azazel, target);
     }
 
-    public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target) {
-        invoke("castGoetyHellBlast", azazel, target);
+    public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target, int direction) {
+        invoke("castGoetyHellBlast", azazel, target, direction);
     }
 
     public static void castNetherSpell(AzazelHumanEntity azazel, LivingEntity target) {
@@ -62,6 +66,21 @@ public final class AzazelGoetyBridge {
         invoke("summonDamned", azazel, target);
     }
 
+    public static void summonMalghast(AzazelHumanEntity azazel, LivingEntity target) {
+        invoke("summonMalghast", azazel, target);
+    }
+
+    public static int countOwnedMalghasts(AzazelHumanEntity azazel) {
+        try {
+            Class<?> magic = magicType();
+            if (magic == null) return 0;
+            return (int) magic.getMethod("countOwnedMalghasts", AzazelHumanEntity.class)
+                    .invoke(null, azazel);
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            return 0;
+        }
+    }
+
     public static boolean isOwnedByAzazel(AzazelHumanEntity azazel, Entity entity) {
         try {
             Class<?> magic = magicType();
@@ -89,8 +108,8 @@ public final class AzazelGoetyBridge {
             if (magic == null) return;
             Class<?>[] parameterTypes = switch (method) {
                 case "summonNetherServant" -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class, int.class};
+                case "castGoetyHellBlast" -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class, int.class};
                 case "prepareSpell" -> new Class<?>[]{AzazelHumanEntity.class, boolean.class};
-                case "castGoetyHellBlast" -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class};
                 default -> new Class<?>[]{AzazelHumanEntity.class, LivingEntity.class};
             };
             magic.getMethod(method, parameterTypes).invoke(null, args);

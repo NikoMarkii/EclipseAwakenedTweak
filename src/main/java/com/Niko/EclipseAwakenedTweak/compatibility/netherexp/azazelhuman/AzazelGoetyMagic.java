@@ -4,6 +4,7 @@ import com.Polarice3.Goety.common.entities.ModEntityType;
 import com.Polarice3.Goety.common.entities.neutral.AbstractObsidianMonolith;
 import com.Polarice3.Goety.common.entities.hostile.servants.Damned;
 import com.Polarice3.Goety.common.entities.hostile.servants.Inferno;
+import com.Polarice3.Goety.common.entities.hostile.servants.Malghast;
 import com.Polarice3.Goety.common.entities.neutral.Owned;
 import com.Polarice3.Goety.common.entities.projectiles.HellCloud;
 import com.Polarice3.Goety.common.entities.projectiles.NetherMeteor;
@@ -37,12 +38,25 @@ public final class AzazelGoetyMagic {
     }
 
     public static boolean isOwnedByAzazel(AzazelHumanEntity azazel, Entity entity) {
-        return entity instanceof Owned owned && owned.getTrueOwner() == azazel
+        return AzazelSummonTag.belongsTo(azazel, entity)
+                || entity instanceof Owned owned && owned.getTrueOwner() == azazel
                 || entity instanceof SpellEntity spell && spell.getOwner() == azazel;
     }
 
     public static boolean isGoetyOwnedEntity(Entity entity) {
         return entity instanceof Owned || entity instanceof SpellEntity;
+    }
+
+    public static int countOwnedMalghasts(AzazelHumanEntity azazel) {
+        if (!(azazel.level() instanceof ServerLevel level)) return 0;
+        int count = 0;
+        for (Entity entity : level.getAllEntities()) {
+            if (entity instanceof Malghast malghast && malghast.isAlive()
+                    && AzazelSummonTag.belongsTo(azazel, malghast)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public static void prepareSpell(AzazelHumanEntity azazel, boolean summon) {
@@ -63,19 +77,28 @@ public final class AzazelGoetyMagic {
         }
     }
 
+    public static void triggerSeventyPercent(AzazelHumanEntity azazel, LivingEntity target) {
+        if (azazel.level() instanceof ServerLevel level) {
+            summonMonolith(level, azazel, target, 1);
+        }
+    }
+
     public static void triggerThirtyPercent(AzazelHumanEntity azazel, LivingEntity target) {
         if (azazel.level() instanceof ServerLevel level) {
             summonMonolith(level, azazel, target, 3);
         }
     }
 
-    public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target) {
+    public static void castGoetyHellBlast(AzazelHumanEntity azazel, LivingEntity target, int direction) {
         if (!(azazel.level() instanceof ServerLevel level) || target == null || !target.isAlive()) return;
 
         double dx = target.getX() - azazel.getX();
         double dy = target.getY(0.5D) - azazel.getY(0.5D);
         double dz = target.getZ() - azazel.getZ();
-        HellBlast blast = new HellBlast(azazel, dx, dy, dz, level);
+        double offset = Math.toRadians((direction - 1) * 18.0D);
+        double rotatedX = dx * Math.cos(offset) - dz * Math.sin(offset);
+        double rotatedZ = dx * Math.sin(offset) + dz * Math.cos(offset);
+        HellBlast blast = new HellBlast(azazel, rotatedX, dy, rotatedZ, level);
         blast.setPos(blast.getX(), azazel.getY(0.5D), blast.getZ());
         level.addFreshEntity(blast);
         if (!azazel.isSilent()) {
@@ -113,6 +136,7 @@ public final class AzazelGoetyMagic {
             owned.setOwnerId(azazel.getUUID());
             owned.setHostile(true);
         }
+        AzazelSummonTag.mark(azazel, servant);
         if (servant instanceof Inferno inferno) {
             inferno.setLifespan(60 * (90 + level.random.nextInt(180)));
             inferno.setUpgraded(true);
@@ -134,11 +158,28 @@ public final class AzazelGoetyMagic {
         damned.moveTo(spawnPos, azazel.getYRot(), azazel.getXRot());
         damned.setOwnerId(azazel.getUUID());
         damned.setHostile(true);
+        AzazelSummonTag.mark(azazel, damned);
         if (target != null) damned.setTarget(target);
         damned.finalizeSpawn(level, level.getCurrentDifficultyAt(spawnPos), MobSpawnType.MOB_SUMMONED, null, null);
         damned.setTarget(target);
         damned.setLifespan(100);
         level.addFreshEntity(damned);
+    }
+
+    public static void summonMalghast(AzazelHumanEntity azazel, LivingEntity target) {
+        if (!(azazel.level() instanceof ServerLevel level)) return;
+        Mob malghast = ModEntityType.MALGHAST.get().create(level);
+        if (malghast == null) return;
+        double x = azazel.getX() + (azazel.getRandom().nextDouble() - 0.5D) * 8.0D;
+        double z = azazel.getZ() + (azazel.getRandom().nextDouble() - 0.5D) * 8.0D;
+        malghast.moveTo(x, azazel.getY() + 1.0D, z, azazel.getYRot(), 0.0F);
+        if (malghast instanceof Owned owned) {
+            owned.setOwnerId(azazel.getUUID());
+            owned.setHostile(true);
+        }
+        AzazelSummonTag.mark(azazel, malghast);
+        if (target != null) malghast.setTarget(target);
+        level.addFreshEntity(malghast);
     }
 
     private static void summonMonolith(ServerLevel level, AzazelHumanEntity azazel,

@@ -146,6 +146,15 @@ public final class AzazelReworkHandler {
             data.remove(PREFIX + "rushHitEntities");
             data.remove(PREFIX + "jumpImpactPillarsDone");
             if (state != 5) data.remove(PREFIX + "queuedRangeGoal");
+            if (state == 32) {
+                String breathMilestone = getAvailableBreathMilestone(azazel, data);
+                if (breathMilestone == null) {
+                    azazel.getEntityData().set(AzazelHumanEntity.BOSS_STATE, 5);
+                    state = 5;
+                } else {
+                    data.putBoolean(breathMilestone, true);
+                }
+            }
         } else {
             data.putInt(PREFIX + "attackAge", data.getInt(PREFIX + "attackAge") + 1);
         }
@@ -153,6 +162,18 @@ public final class AzazelReworkHandler {
         long now = level.getGameTime();
         // Leave target selection, facing, movement, and attack choice to NetherExp's AI.
         LivingEntity target = azazel.getTarget();
+        if (state == 12 || state == 13) {
+            Vec3 travel = azazel.getDeltaMovement();
+            if (travel.horizontalDistanceSqr() < 1.0E-6D && target != null) {
+                travel = target.position().subtract(azazel.position());
+            }
+            if (travel.horizontalDistanceSqr() >= 1.0E-6D) {
+                float travelYaw = (float) (Math.atan2(travel.z, travel.x) * (180.0D / Math.PI)) - 90.0F;
+                azazel.setYRot(travelYaw);
+                azazel.setYBodyRot(travelYaw);
+                azazel.setYHeadRot(travelYaw);
+            }
+        }
         int attackAge = data.getInt(PREFIX + "attackAge");
         applyNonPlayerAttackHitboxes(azazel, target, state, attackAge);
         applyRushHit(azazel, state, data);
@@ -163,92 +184,113 @@ public final class AzazelReworkHandler {
         }
         data.putBoolean(wasOnGroundKey, azazel.onGround());
 
-        if (azazel.getHealth() <= azazel.getMaxHealth() * 0.5F
-                && !data.getBoolean(PREFIX + "halfPhase")) {
-            data.putBoolean(PREFIX + "halfPhase", true);
-            data.putLong(PREFIX + "halfPhaseAt", now + 40L);
-            data.putInt(PREFIX + "halfIdleTicks", 0);
-            AzazelGoetyBridge.prepareSpell(azazel, true);
-        }
-
-        if (azazel.getHealth() <= azazel.getMaxHealth() * 0.3F
+        // Fire each health milestone as soon as it is crossed. Do not defer these until an
+        // idle animation: a later threshold must never consume an earlier threshold's event.
+        data.remove(PREFIX + "seventyPercentMonolithAt");
+        data.remove(PREFIX + "halfPhaseAt");
+        data.remove(PREFIX + "thirtyPercentPhaseAt");
+        if (azazel.getHealth() <= azazel.getMaxHealth() * 0.30F
                 && !data.getBoolean(PREFIX + "thirtyPercentPhase")) {
+            data.putBoolean(PREFIX + "seventyPercentMonolith", true);
+            data.putBoolean(PREFIX + "halfPhase", true);
+            data.putBoolean(PREFIX + "halfPhaseSpawned", true);
             data.putBoolean(PREFIX + "thirtyPercentPhase", true);
-            data.putLong(PREFIX + "thirtyPercentPhaseAt", now + 80L);
-            data.putInt(PREFIX + "thirtyIdleTicks", 0);
             AzazelGoetyBridge.prepareSpell(azazel, true);
-        }
-
-        boolean vanillaPhaseIdle = state == 5;
-        if (data.getLong(PREFIX + "halfPhaseAt") > 0L) {
-            int idleTicks = vanillaPhaseIdle ? data.getInt(PREFIX + "halfIdleTicks") + 1 : 0;
-            data.putInt(PREFIX + "halfIdleTicks", idleTicks);
-            if (now >= data.getLong(PREFIX + "halfPhaseAt") && idleTicks >= 10) {
-                data.putLong(PREFIX + "halfPhaseAt", 0L);
-                data.putBoolean(PREFIX + "halfPhaseSpawned", true);
-                AzazelGoetyBridge.halfPhase(azazel, target);
-            }
-        }
-
-        if (data.getLong(PREFIX + "thirtyPercentPhaseAt") > 0L
-                && data.getBoolean(PREFIX + "halfPhaseSpawned")) {
-            int idleTicks = vanillaPhaseIdle ? data.getInt(PREFIX + "thirtyIdleTicks") + 1 : 0;
-            data.putInt(PREFIX + "thirtyIdleTicks", idleTicks);
-            if (now >= data.getLong(PREFIX + "thirtyPercentPhaseAt") && idleTicks >= 10) {
-                data.putLong(PREFIX + "thirtyPercentPhaseAt", 0L);
-                AzazelGoetyBridge.thirtyPercentPhase(azazel, target);
-            }
+            AzazelGoetyBridge.thirtyPercentPhase(azazel, target);
+        } else if (azazel.getHealth() <= azazel.getMaxHealth() * 0.50F
+                && !data.getBoolean(PREFIX + "halfPhase")) {
+            data.putBoolean(PREFIX + "seventyPercentMonolith", true);
+            data.putBoolean(PREFIX + "halfPhase", true);
+            data.putBoolean(PREFIX + "halfPhaseSpawned", true);
+            AzazelGoetyBridge.prepareSpell(azazel, true);
+            AzazelGoetyBridge.halfPhase(azazel, target);
+        } else if (azazel.getHealth() <= azazel.getMaxHealth() * 0.70F
+                && !data.getBoolean(PREFIX + "seventyPercentMonolith")) {
+            data.putBoolean(PREFIX + "seventyPercentMonolith", true);
+            AzazelGoetyBridge.prepareSpell(azazel, true);
+            AzazelGoetyBridge.seventyPercentPhase(azazel, target);
         }
 
         if (target != null && net.minecraftforge.fml.ModList.get().isLoaded("goety")) {
-            if (now >= data.getLong(PREFIX + "nextGoetyHellBlast")) {
+            boolean rushing = state == 12 || state == 13;
+            int blastRemaining = data.getInt(PREFIX + "hellBlastRemaining");
+            if (blastRemaining <= 0 && !rushing && now >= data.getLong(PREFIX + "nextGoetyHellBlast")) {
+                boolean phaseThree = azazel.getHealth() <= azazel.getMaxHealth() * 0.30F;
+                boolean phaseTwo = azazel.getHealth() <= azazel.getMaxHealth() * 0.50F;
+                data.putInt(PREFIX + "hellBlastRemaining", phaseThree ? 5 : phaseTwo ? 3 : 1);
+                data.putInt(PREFIX + "hellBlastShotsPerDirection", phaseThree ? 10 : 1);
+                data.putInt(PREFIX + "hellBlastFired", 0);
                 data.putLong(PREFIX + "nextGoetyHellBlast", now + 200L);
-                data.putLong(PREFIX + "goetyHellBlastAt", now + 25L);
+                data.putLong(PREFIX + "hellBlastNextShotAt", now + 25L);
                 AzazelGoetyBridge.prepareSpell(azazel, false);
+                blastRemaining = data.getInt(PREFIX + "hellBlastRemaining");
             }
-            if (data.getLong(PREFIX + "goetyHellBlastAt") > 0L
-                    && now >= data.getLong(PREFIX + "goetyHellBlastAt")) {
-                data.putLong(PREFIX + "goetyHellBlastAt", 0L);
-                AzazelGoetyBridge.castGoetyHellBlast(azazel, target);
+            if (blastRemaining > 0 && !rushing && now >= data.getLong(PREFIX + "hellBlastNextShotAt")) {
+                int shotsPerDirection = Math.max(1, data.getInt(PREFIX + "hellBlastShotsPerDirection"));
+                int fired = data.getInt(PREFIX + "hellBlastFired");
+                if (shotsPerDirection == 1) {
+                    AzazelGoetyBridge.castGoetyHellBlast(azazel, target, 1);
+                } else {
+                    // One volley launches all three fan directions together; repeat ten volleys.
+                    for (int direction = 0; direction < 3; direction++) {
+                        AzazelGoetyBridge.castGoetyHellBlast(azazel, target, direction);
+                    }
+                }
+                data.putInt(PREFIX + "hellBlastFired", fired + 1);
+                data.putInt(PREFIX + "hellBlastRemaining", blastRemaining - 1);
+                data.putLong(PREFIX + "hellBlastNextShotAt", now + (shotsPerDirection == 1 ? 5L : 2L));
+            }
+
+            if (data.getBoolean(PREFIX + "halfPhase")) {
+                if (now >= data.getLong(PREFIX + "nextSummon")) {
+                    data.putLong(PREFIX + "nextSummon", now + 600L);
+                    data.putLong(PREFIX + "summonAt", now + 60L);
+                    AzazelGoetyBridge.prepareSpell(azazel, true);
+                }
+                if (data.getLong(PREFIX + "summonAt") > 0L && now >= data.getLong(PREFIX + "summonAt")) {
+                    data.putLong(PREFIX + "summonAt", 0L);
+                    summonAttack(azazel, target);
+                }
+                if (now >= data.getLong(PREFIX + "nextNetherSpell")) {
+                    data.putLong(PREFIX + "nextNetherSpell", now + 240L);
+                    data.putLong(PREFIX + "netherSpellAt", now + 30L);
+                    AzazelGoetyBridge.prepareSpell(azazel, false);
+                }
+                if (data.getLong(PREFIX + "netherSpellAt") > 0L && now >= data.getLong(PREFIX + "netherSpellAt")) {
+                    data.putLong(PREFIX + "netherSpellAt", 0L);
+                    AzazelGoetyBridge.castNetherSpell(azazel, target);
+                }
+                int damnedRemaining = data.getInt(PREFIX + "damnedRemaining");
+                if (damnedRemaining <= 0 && azazel.distanceTo(target) > 10.0D
+                        && now >= data.getLong(PREFIX + "nextDamnedWave")) {
+                    data.putInt(PREFIX + "damnedRemaining", 4);
+                    data.putLong(PREFIX + "damnedSpawnAt", now + 60L);
+                    data.putLong(PREFIX + "nextDamnedWave", now + 1200L);
+                    AzazelGoetyBridge.prepareSpell(azazel, true);
+                }
+                if (damnedRemaining > 0 && now >= data.getLong(PREFIX + "damnedSpawnAt")) {
+                    AzazelGoetyBridge.summonDamned(azazel, target);
+                    data.putInt(PREFIX + "damnedRemaining", damnedRemaining - 1);
+                    data.putLong(PREFIX + "damnedSpawnAt", now + 10L);
+                }
             }
         }
 
-        if (target == null || !data.getBoolean(PREFIX + "halfPhase")) return;
-        if (now >= data.getLong(PREFIX + "nextSummon")) {
-            data.putLong(PREFIX + "nextSummon", now + 600L);
-            data.putLong(PREFIX + "summonAt", now + 60L);
-            AzazelGoetyBridge.prepareSpell(azazel, true);
-        }
-        if (data.getLong(PREFIX + "summonAt") > 0L && now >= data.getLong(PREFIX + "summonAt")) {
-            data.putLong(PREFIX + "summonAt", 0L);
-            summonAttack(azazel, level, target);
-        }
-        if (now >= data.getLong(PREFIX + "nextNetherSpell")) {
-            data.putLong(PREFIX + "nextNetherSpell", now + 240L);
-            data.putLong(PREFIX + "netherSpellAt", now + 30L);
-            AzazelGoetyBridge.prepareSpell(azazel, false);
-        }
-        if (data.getLong(PREFIX + "netherSpellAt") > 0L && now >= data.getLong(PREFIX + "netherSpellAt")) {
-            data.putLong(PREFIX + "netherSpellAt", 0L);
-            AzazelGoetyBridge.castNetherSpell(azazel, target);
-        }
+    }
 
-        if (net.minecraftforge.fml.ModList.get().isLoaded("goety")) {
-            int damnedRemaining = data.getInt(PREFIX + "damnedRemaining");
-            boolean farTarget = azazel.distanceTo(target) > 10.0D;
-            if (damnedRemaining <= 0 && farTarget
-                    && now >= data.getLong(PREFIX + "nextDamnedWave")) {
-                data.putInt(PREFIX + "damnedRemaining", 4);
-                data.putLong(PREFIX + "damnedSpawnAt", now + 60L);
-                data.putLong(PREFIX + "nextDamnedWave", now + 1200L);
-                AzazelGoetyBridge.prepareSpell(azazel, true);
-            }
-            if (damnedRemaining > 0 && now >= data.getLong(PREFIX + "damnedSpawnAt")) {
-                AzazelGoetyBridge.summonDamned(azazel, target);
-                data.putInt(PREFIX + "damnedRemaining", damnedRemaining - 1);
-                data.putLong(PREFIX + "damnedSpawnAt", now + 10L);
-            }
+    private static String getAvailableBreathMilestone(AzazelHumanEntity azazel,
+                                                       net.minecraft.nbt.CompoundTag data) {
+        float healthRatio = azazel.getHealth() / azazel.getMaxHealth();
+        if (healthRatio <= 0.75F && !data.getBoolean(PREFIX + "breath75Used")) {
+            return PREFIX + "breath75Used";
         }
+        if (healthRatio <= 0.45F && !data.getBoolean(PREFIX + "breath45Used")) {
+            return PREFIX + "breath45Used";
+        }
+        if (healthRatio <= 0.35F && !data.getBoolean(PREFIX + "breath35Used")) {
+            return PREFIX + "breath35Used";
+        }
+        return null;
     }
 
     private static boolean isValidTarget(AzazelHumanEntity azazel, LivingEntity candidate) {
@@ -400,6 +442,7 @@ public final class AzazelReworkHandler {
 
     private static boolean isAzazelSummon(AzazelHumanEntity azazel, Entity entity) {
         if (entity == azazel) return true;
+        if (AzazelSummonTag.belongsTo(azazel, entity)) return true;
         if (entity instanceof GildedGolemEntity golem && azazel.getUUID().equals(golem.getCreatorUUID())) return true;
         if (entity instanceof GuardianEntity guardian && azazel.getUUID().equals(guardian.getOwnerUUID())) return true;
         return AzazelGoetyBridge.isOwnedByAzazel(azazel, entity);
@@ -412,33 +455,24 @@ public final class AzazelReworkHandler {
         return owner != null && isAzazelSummon(owner, second);
     }
 
-    private static void summonAttack(AzazelHumanEntity azazel, ServerLevel level, LivingEntity target) {
+    static void summonAttack(AzazelHumanEntity azazel, LivingEntity target) {
+        if (!(azazel.level() instanceof ServerLevel level)) return;
         boolean goetyLoaded = net.minecraftforge.fml.ModList.get().isLoaded("goety");
-        int choice = azazel.getRandom().nextInt(goetyLoaded ? 3 : 2);
-        if (goetyLoaded && choice == 0) {
-            AzazelGoetyBridge.summonNetherServant(azazel, target, 0);
+        int choice = azazel.getRandom().nextInt(goetyLoaded ? 3 : 1);
+        if (goetyLoaded && choice == 2) {
+            if (AzazelGoetyBridge.countOwnedMalghasts(azazel) >= 2) return;
+            AzazelGoetyBridge.summonMalghast(azazel, target);
             return;
         }
-        if (goetyLoaded) choice--;
 
-        if (choice == 0) {
-            if (hasLivingOwnedGolem(azazel, level)) return;
-            GildedGolemEntity golem = NetherExp.GILDED_GOLEM.get().create(level);
-            if (golem == null) return;
-            golem.moveTo(azazel.getX() + 4.0D, azazel.getY(), azazel.getZ(), azazel.getYRot(), 0.0F);
-            golem.setCreatorUUID(azazel.getUUID());
-            golem.setTarget(target);
-            level.addFreshEntity(golem);
-        } else {
-            if (hasLivingOwnedGuardian(azazel, level)) return;
-            GuardianEntity guardian = NetherExp.GUARDIAN.get().create(level);
-            if (guardian == null) return;
-            guardian.moveTo(azazel.getX() - 4.0D, azazel.getY(), azazel.getZ(), azazel.getYRot(), 0.0F);
-            guardian.setOwnerUUID(azazel.getUUID());
-            guardian.setTarget(target);
-            guardian.startSpawning();
-            level.addFreshEntity(guardian);
-        }
+        if (hasLivingOwnedGolem(azazel, level)) return;
+        GildedGolemEntity golem = NetherExp.GILDED_GOLEM.get().create(level);
+        if (golem == null) return;
+        golem.moveTo(azazel.getX() + 4.0D, azazel.getY(), azazel.getZ(), azazel.getYRot(), 0.0F);
+        golem.setCreatorUUID(azazel.getUUID());
+        AzazelSummonTag.mark(azazel, golem);
+        golem.setTarget(target);
+        level.addFreshEntity(golem);
     }
 
     private static boolean hasLivingOwnedGolem(AzazelHumanEntity azazel, ServerLevel level) {
@@ -449,11 +483,4 @@ public final class AzazelReworkHandler {
         return false;
     }
 
-    private static boolean hasLivingOwnedGuardian(AzazelHumanEntity azazel, ServerLevel level) {
-        for (Entity entity : level.getAllEntities()) {
-            if (entity instanceof GuardianEntity guardian && guardian.isAlive()
-                    && azazel.getUUID().equals(guardian.getOwnerUUID())) return true;
-        }
-        return false;
-    }
 }
