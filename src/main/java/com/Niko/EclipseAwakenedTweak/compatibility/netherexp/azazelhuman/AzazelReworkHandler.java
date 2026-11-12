@@ -7,6 +7,7 @@ import com.benji.netherman.entity.AzazelHumanEntity;
 import com.benji.netherman.entity.GildedGolemEntity;
 import com.benji.netherman.entity.GuardianEntity;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -26,10 +27,22 @@ import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.MobEffectEvent;
 import net.minecraftforge.event.entity.ProjectileImpactEvent;
 
+import java.lang.reflect.Field;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Set;
+
 /** Adds non-player targets and phase-two Nether attacks to NetherExp's human Azazel. */
 public final class AzazelReworkHandler {
     private static final String PREFIX = "eclipseawakenedtweak.azazel_human.";
+    private static final Field GOLEM_HEALING_PHASE_FIELD = findGolemHealingPhaseField();
+    private static final Map<GildedGolemEntity, GolemHealthSnapshot> PENDING_GOLEM_HEALTH_RESTORE =
+            new IdentityHashMap<>();
+    private static final Set<ServerPlayer> PENDING_PRAEMIUM_RESTORE = new HashSet<>();
     private AzazelReworkHandler() {}
+
+    private record GolemHealthSnapshot(float originalHealth, float temporaryHealth) {}
 
     @SubscribeEvent
     public static void onAzazelAttacked(LivingAttackEvent event) {
@@ -133,12 +146,97 @@ public final class AzazelReworkHandler {
     }
 
     @SubscribeEvent
+    public static void onAzazelManipulationAdded(MobEffectEvent.Added event) {
+        if (event.getEffectInstance().getEffect() != NetherExp.MANIPULATION_EFFECT.get()) return;
+        if (event.getEffectSource() instanceof AzazelHumanEntity) {
+            event.getEntity().removeEffect(NetherExp.MANIPULATION_EFFECT.get());
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPraemiumRemoved(MobEffectEvent.Remove event) {
+        if (event.getEffect() != NetherExp.PRAEMIUM.get()
+                || !(event.getEntity() instanceof ServerPlayer player)
+                || player.level().isClientSide()) return;
+
+        // Reapply after the removal operation finishes. Doing it inside Remove can be
+        // overwritten by milk/totem's remove-all-effects loop.
+        PENDING_PRAEMIUM_RESTORE.add(player);
+    }
+
+    @SubscribeEvent
     public static void onLivingTick(net.minecraftforge.event.entity.living.LivingEvent.LivingTickEvent event) {
+        if (event.getEntity() instanceof GildedGolemEntity golem) {
+            suppressAzazelGolemHealingSuck(golem);
+        }
         if (event.getEntity() instanceof Mob mob && !(mob instanceof AzazelHumanEntity)) {
             updateAzazelSummonTarget(mob);
         }
         if (event.getEntity() instanceof AzazelHumanEntity azazel) {
             tickAzazel(azazel);
+        }
+    }
+
+    private static void suppressAzazelGolemHealingSuck(GildedGolemEntity golem) {
+        if (golem.level().isClientSide || !golem.isAlive() || GOLEM_HEALING_PHASE_FIELD == null) return;
+        AzazelHumanEntity owner = findSummoner(golem);
+        if (owner == null || golem.getHealth() / golem.getMaxHealth() > 0.25F) return;
+
+        float originalHealth = golem.getHealth();
+        float temporaryHealth = golem.getMaxHealth() * 0.251F;
+        try {
+            GOLEM_HEALING_PHASE_FIELD.setBoolean(golem, false);
+            golem.setHealth(temporaryHealth);
+            PENDING_GOLEM_HEALTH_RESTORE.put(golem,
+                    new GolemHealthSnapshot(originalHealth, temporaryHealth));
+        } catch (IllegalAccessException ignored) {
+            // Keep the original NetherExp behavior if the implementation field is unavailable.
+        }
+    }
+
+    @SubscribeEvent
+    public static void restoreAzazelGolemHealth(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
+        if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
+
+        if (!PENDING_GOLEM_HEALTH_RESTORE.isEmpty()) {
+            for (Map.Entry<GildedGolemEntity, GolemHealthSnapshot> entry
+                    : PENDING_GOLEM_HEALTH_RESTORE.entrySet()) {
+                GildedGolemEntity golem = entry.getKey();
+                if (!golem.isAlive() || golem.isRemoved()) continue;
+                GolemHealthSnapshot snapshot = entry.getValue();
+                float tickHealthChange = golem.getHealth() - snapshot.temporaryHealth();
+                golem.setHealth(Math.max(0.0F, snapshot.originalHealth() + tickHealthChange));
+            }
+            PENDING_GOLEM_HEALTH_RESTORE.clear();
+        }
+
+        if (PENDING_PRAEMIUM_RESTORE.isEmpty()) return;
+        for (ServerPlayer player : PENDING_PRAEMIUM_RESTORE) {
+            if (!player.isAlive() || player.isRemoved()
+                    || !(player.level() instanceof ServerLevel level)
+                    || !hasLivingAzazel(level)) continue;
+            if (!player.hasEffect(NetherExp.PRAEMIUM.get())) {
+                player.addEffect(new MobEffectInstance(NetherExp.PRAEMIUM.get(), -1, 0,
+                        false, false, true));
+            }
+        }
+        PENDING_PRAEMIUM_RESTORE.clear();
+    }
+
+    private static boolean hasLivingAzazel(ServerLevel level) {
+        for (Entity entity : level.getAllEntities()) {
+            if (entity instanceof AzazelHumanEntity azazel && azazel.isAlive()) return true;
+        }
+        return false;
+    }
+
+    private static Field findGolemHealingPhaseField() {
+        try {
+            Field field = GildedGolemEntity.class.getDeclaredField("isHealingPhase");
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException ignored) {
+            return null;
         }
     }
 
@@ -168,13 +266,8 @@ public final class AzazelReworkHandler {
             data.remove(PREFIX + "jumpImpactPillarsDone");
             if (state != 5) data.remove(PREFIX + "queuedRangeGoal");
             if (state == 32) {
-                String breathMilestone = getAvailableBreathMilestone(azazel, data);
-                if (breathMilestone == null) {
-                    azazel.getEntityData().set(AzazelHumanEntity.BOSS_STATE, 5);
-                    state = 5;
-                } else {
-                    data.putBoolean(breathMilestone, true);
-                }
+                azazel.getEntityData().set(AzazelHumanEntity.BOSS_STATE, 5);
+                state = 5;
             }
         } else {
             data.putInt(PREFIX + "attackAge", data.getInt(PREFIX + "attackAge") + 1);
@@ -299,21 +392,6 @@ public final class AzazelReworkHandler {
 
     }
 
-    private static String getAvailableBreathMilestone(AzazelHumanEntity azazel,
-                                                       net.minecraft.nbt.CompoundTag data) {
-        float healthRatio = azazel.getHealth() / azazel.getMaxHealth();
-        if (healthRatio <= 0.75F && !data.getBoolean(PREFIX + "breath75Used")) {
-            return PREFIX + "breath75Used";
-        }
-        if (healthRatio <= 0.45F && !data.getBoolean(PREFIX + "breath45Used")) {
-            return PREFIX + "breath45Used";
-        }
-        if (healthRatio <= 0.35F && !data.getBoolean(PREFIX + "breath35Used")) {
-            return PREFIX + "breath35Used";
-        }
-        return null;
-    }
-
     private static boolean isValidTarget(AzazelHumanEntity azazel, LivingEntity candidate) {
         return candidate != null && candidate != azazel
                 && candidate.isAlive() && candidate.isAttackable()
@@ -353,13 +431,6 @@ public final class AzazelReworkHandler {
         } else if (state == 31 && age == 9) {
             hitNonPlayersInFront(azazel, AzazelConfig.HUMAN_SPEAR_MID_PULL_DAMAGE.get().floatValue(),
                     AzazelConfig.HUMAN_SPEAR_MID_PULL_KNOCKBACK.get(), true, 0.0D);
-        } else if (state == 32 && age == 39) {
-            if (currentTarget != null && currentTarget.isAlive()
-                    && azazel.distanceToSqr(currentTarget) <= 20.0D * 20.0D) {
-                currentTarget.addEffect(new MobEffectInstance(MobEffects.WITHER, 600, 1));
-                currentTarget.addEffect(new MobEffectInstance(MobEffects.DARKNESS, 600, 0));
-                currentTarget.addEffect(new MobEffectInstance(NetherExp.MANIPULATION_EFFECT.get(), 400, 0));
-            }
         }
     }
 
